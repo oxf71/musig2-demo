@@ -6,7 +6,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/oxf71/musig2-demo/pkg/btcapi"
+	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi"
 	"net/http"
 )
 

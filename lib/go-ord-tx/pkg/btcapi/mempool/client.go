@@ -4,7 +4,7 @@ import (
 	"io"
 	"log"
 
-	"github.com/oxf71/musig2-demo/pkg/btcapi"
+	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi"
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
