@@ -527,7 +527,7 @@ func main() {
 
 	musig2_early_demo()
 	msg := []byte("msg hello")
-	sign, hash, err := musig2demo.TwoPrivSign(bip340TestVectors[0].secretKey, bip340TestVectors[1].secretKey, msg)
+	sign, hash, err := musig2demo.TwoPrivSign2(privKey1, privKey2, msg)
 	if err != nil {
 		log.Fatal(err)
 	}
