@@ -488,7 +488,8 @@ func RawTxInSignature(tx *wire.MsgTx, idx int, subScript []byte,
 	}
 
 	// signature := ecdsa.Sign(key1, hash)
-	signature, hash, err := musig2demo.TwoPrivSign2(key1, key2, hash)
+	msg := sha256.Sum256(hash)
+	signature, hash, err := musig2demo.TwoPrivSign2(key1, key2, msg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -526,7 +527,7 @@ func main() {
 	privKey2, _ := btcec.PrivKeyFromBytes(decodeHex(bip340TestVectors[1].secretKey))
 
 	musig2_early_demo()
-	msg := []byte("msg hello")
+	msg := sha256.Sum256([]byte("msg hello"))
 	sign, hash, err := musig2demo.TwoPrivSign2(privKey1, privKey2, msg)
 	if err != nil {
 		log.Fatal(err)

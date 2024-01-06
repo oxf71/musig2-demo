@@ -1,6 +1,7 @@
 package musig2_test
 
 import (
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"testing"
@@ -31,8 +32,8 @@ func TestMultiPartySign(t *testing.T) {
 	}
 
 	priv := []*btcec.PrivateKey{privKey1, privKey2}
-
-	sign, combinedKey, hash, err := musig2demo.MultiPartySign(priv, testTweak[:], []byte("test"))
+	msg := sha256.Sum256([]byte("test"))
+	sign, combinedKey, hash, err := musig2demo.MultiPartySign(priv, testTweak[:], msg)
 	if err != nil {
 		t.Fatal(err)
 	}

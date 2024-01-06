@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi/mempool"
-	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/ord"
+	ord "github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/ord2"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -49,6 +49,9 @@ func main() {
 	commitTxOutPointList := make([]*wire.OutPoint, 0)
 	commitTxPrivateKeyList := make([]*btcec.PrivateKey, 0)
 	for i := range unspentList {
+		if i > 0 {
+			break
+		}
 		commitTxOutPointList = append(commitTxOutPointList, unspentList[i].Outpoint)
 		commitTxPrivateKeyList = append(commitTxPrivateKeyList, utxoPrivateKey)
 		fmt.Println("unspentList:", unspentList[i].Outpoint)

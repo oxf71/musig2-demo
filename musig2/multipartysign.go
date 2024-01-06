@@ -1,7 +1,6 @@
 package musig2
 
 import (
-	"crypto/sha256"
 	"log"
 	"sync"
 
@@ -10,7 +9,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 )
 
-func MultiPartySign(signerKeys []*btcec.PrivateKey, taprootTweak []byte, data []byte,
+func MultiPartySign(signerKeys []*btcec.PrivateKey, taprootTweak []byte, msg [32]byte,
 	tweaks ...musig2.KeyTweakDesc) (*schnorr.Signature, *btcec.PublicKey, []byte, error) {
 
 	numSigners := len(signerKeys)
@@ -93,8 +92,6 @@ func MultiPartySign(signerKeys []*btcec.PrivateKey, taprootTweak []byte, data []
 	}
 
 	wg.Wait()
-
-	msg := sha256.Sum256(data)
 
 	// In the final step, we'll use the first signer as our combiner, and
 	// generate a signature for each signer, and then accumulate that with

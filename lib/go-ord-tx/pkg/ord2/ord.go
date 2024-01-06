@@ -1,4 +1,4 @@
-package ord
+package ord2
 
 import (
 	"bytes"
@@ -139,10 +139,19 @@ func (tool *InscriptionTool) _initTool(net *chaincfg.Params, request *Inscriptio
 }
 
 func createInscriptionTxCtxData(net *chaincfg.Params, data InscriptionData) (*inscriptionTxCtxData, error) {
-	privateKey, err := btcec.NewPrivateKey()
+
+	utxoPrivateKeyHex := "440bb3ec56d213e90d006d344d74f6478db4f7fa4cdd388095d8f4edef0c5156"
+	utxoPrivateKeyBytes, err := hex.DecodeString(utxoPrivateKeyHex)
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
 	}
+	privateKey, _ := btcec.PrivKeyFromBytes(utxoPrivateKeyBytes)
+
+	// privateKey, err := btcec.NewPrivateKey()
+	// if err != nil {
+	// 	return nil, err
+	// }
+
 	inscriptionBuilder := txscript.NewScriptBuilder().
 		AddData(schnorr.SerializePubKey(privateKey.PubKey())).
 		AddOp(txscript.OP_CHECKSIG).
@@ -419,19 +428,35 @@ func (tool *InscriptionTool) signCommitTx() error {
 		fmt.Println("taproot sign")
 		witnessList := make([]wire.TxWitness, len(tool.commitTx.TxIn))
 		for i := range tool.commitTx.TxIn {
-			txOut := tool.commitTxPrevOutputFetcher.FetchPrevOutput(tool.commitTx.TxIn[i].PreviousOutPoint)
-			witness, err := TaprootWitnessSignature(
-				tool.commitTx,
-				txscript.NewTxSigHashes(tool.commitTx, tool.commitTxPrevOutputFetcher),
-				i,
-				txOut.Value,
-				txOut.PkScript,
-				txscript.SigHashDefault,
-				tool.commitTxPrivateKeyList[i])
+			// txOut := tool.commitTxPrevOutputFetcher.FetchPrevOutput(tool.commitTx.TxIn[i].PreviousOutPoint)
+			// witness, err := TaprootWitnessSignature(
+			// 	tool.commitTx,
+			// 	txscript.NewTxSigHashes(tool.commitTx, tool.commitTxPrevOutputFetcher),
+			// 	i,
+			// 	txOut.Value,
+			// 	txOut.PkScript,
+			// 	txscript.SigHashDefault,
+			// 	tool.commitTxPrivateKeyList[i])
+			// if err != nil {
+			// 	return err
+			// }
+			// witnessList[i] = witness
+			commitTx := tool.commitTx
+			idx := i
+			// if len(tool.revealTx) != 1 {
+			// 	commitTx = tool.commitTx[i]
+			// 	idx = 0
+			// }
+			witnessArray, err := txscript.CalcTapscriptSignaturehash(txscript.NewTxSigHashes(commitTx, tool.commitTxPrevOutputFetcher),
+				txscript.SigHashDefault, commitTx, idx, tool.commitTxPrevOutputFetcher, txscript.NewBaseTapLeaf(tool.txCtxDataList[0].inscriptionScript))
 			if err != nil {
 				return err
 			}
-			witnessList[i] = witness
+			signature, err := schnorr.Sign(tool.txCtxDataList[0].privateKey, witnessArray)
+			if err != nil {
+				return err
+			}
+			witnessList[i] = wire.TxWitness{signature.Serialize(), tool.txCtxDataList[0].inscriptionScript, tool.txCtxDataList[0].controlBlockWitness}
 		}
 		for i := range witnessList {
 			tool.commitTx.TxIn[i].Witness = witnessList[i]

@@ -1,7 +1,6 @@
 package musig2
 
 import (
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"log"
@@ -24,7 +23,7 @@ func decodeHex(hexStr string) []byte {
 	return b
 }
 
-func TwoPrivSign2(privKey1, privKey2 *btcec.PrivateKey, data []byte) (*schnorr.Signature, []byte, error) {
+func TwoPrivSign2(privKey1, privKey2 *btcec.PrivateKey, msg [32]byte) (*schnorr.Signature, []byte, error) {
 
 	// If we try to make a context, with just the private key and sorting
 	// value, we should get an error.
@@ -118,8 +117,6 @@ func TwoPrivSign2(privKey1, privKey2 *btcec.PrivateKey, data []byte) (*schnorr.S
 		log.Fatalf("unable to create new session: %v", err)
 	}
 
-	msg := sha256.Sum256(data)
-
 	// If we try to sign before we have the combined nonce, we shoudl get
 	// an error.
 	_, err = session1.Sign(msg)
@@ -178,7 +175,7 @@ func TwoPrivSign2(privKey1, privKey2 *btcec.PrivateKey, data []byte) (*schnorr.S
 	return finalSig, msg[:], nil
 }
 
-func TwoPrivSign(priv1, priv2 string, data []byte) (*schnorr.Signature, []byte, error) {
+func TwoPrivSign(priv1, priv2 string, msg [32]byte) (*schnorr.Signature, []byte, error) {
 	privKey1, _ := btcec.PrivKeyFromBytes(decodeHex(priv1))
 	privKey2, _ := btcec.PrivKeyFromBytes(decodeHex(priv2))
 
@@ -273,8 +270,6 @@ func TwoPrivSign(priv1, priv2 string, data []byte) (*schnorr.Signature, []byte, 
 	if err != nil {
 		log.Fatalf("unable to create new session: %v", err)
 	}
-
-	msg := sha256.Sum256(data)
 
 	// If we try to sign before we have the combined nonce, we shoudl get
 	// an error.
