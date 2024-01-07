@@ -9,6 +9,7 @@ import (
 
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi"
 	extRpcClient "github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/rpcclient"
+	"github.com/oxf71/musig2-demo/musig2"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -44,7 +45,7 @@ type InscriptionRequest struct {
 }
 
 type inscriptionTxCtxData struct {
-	privateKey              *btcec.PrivateKey
+	privateKey              []*btcec.PrivateKey
 	inscriptionScript       []byte
 	commitTxAddressPkScript []byte
 	controlBlockWitness     []byte
@@ -85,10 +86,14 @@ func NewInscriptionTool(net *chaincfg.Params, rpcclient *rpcclient.Client, reque
 		txCtxDataList:             make([]*inscriptionTxCtxData, len(request.DataList)),
 		revealTxPrevOutputFetcher: txscript.NewMultiPrevOutFetcher(nil),
 	}
-	return tool, tool._initTool(net, request)
+	return tool, tool._initTool(net, request, nil)
 }
 
-func NewInscriptionToolWithBtcApiClient(net *chaincfg.Params, btcApiClient btcapi.BTCAPIClient, request *InscriptionRequest) (*InscriptionTool, error) {
+func NewInscriptionToolWithBtcApiClient(net *chaincfg.Params,
+	btcApiClient btcapi.BTCAPIClient,
+	request *InscriptionRequest,
+	utxoPrivKey []*btcec.PrivateKey,
+) (*InscriptionTool, error) {
 	if len(request.CommitTxPrivateKeyList) != len(request.CommitTxOutPointList) {
 		return nil, errors.New("the length of CommitTxPrivateKeyList and CommitTxOutPointList should be the same")
 	}
@@ -101,10 +106,13 @@ func NewInscriptionToolWithBtcApiClient(net *chaincfg.Params, btcApiClient btcap
 		commitTxPrivateKeyList:    request.CommitTxPrivateKeyList,
 		revealTxPrevOutputFetcher: txscript.NewMultiPrevOutFetcher(nil),
 	}
-	return tool, tool._initTool(net, request)
+	return tool, tool._initTool(net, request, utxoPrivKey)
 }
 
-func (tool *InscriptionTool) _initTool(net *chaincfg.Params, request *InscriptionRequest) error {
+func (tool *InscriptionTool) _initTool(net *chaincfg.Params,
+	request *InscriptionRequest,
+	utxoPrivKey []*btcec.PrivateKey,
+) error {
 	revealOutValue := defaultRevealOutValue
 	if request.RevealOutValue > 0 {
 		revealOutValue = request.RevealOutValue
@@ -112,7 +120,7 @@ func (tool *InscriptionTool) _initTool(net *chaincfg.Params, request *Inscriptio
 	tool.txCtxDataList = make([]*inscriptionTxCtxData, len(request.DataList))
 	destinations := make([]string, len(request.DataList))
 	for i := 0; i < len(request.DataList); i++ {
-		txCtxData, err := createInscriptionTxCtxData(net, request.DataList[i])
+		txCtxData, err := createInscriptionTxCtxData(net, request.DataList[i], utxoPrivKey)
 		if err != nil {
 			return err
 		}
@@ -138,13 +146,20 @@ func (tool *InscriptionTool) _initTool(net *chaincfg.Params, request *Inscriptio
 	return err
 }
 
-func createInscriptionTxCtxData(net *chaincfg.Params, data InscriptionData) (*inscriptionTxCtxData, error) {
-	privateKey, err := btcec.NewPrivateKey()
-	if err != nil {
-		return nil, err
-	}
+func createInscriptionTxCtxData(net *chaincfg.Params,
+	data InscriptionData,
+	privateKey []*btcec.PrivateKey,
+) (*inscriptionTxCtxData, error) {
+	// privateKey, err := btcec.NewPrivateKey()
+	// if err != nil {
+	// 	return nil, err
+	// }
+	//
+
+	publicKey, _ := musig2.TwoCombinedKey(privateKey[0], privateKey[1])
+
 	inscriptionBuilder := txscript.NewScriptBuilder().
-		AddData(schnorr.SerializePubKey(privateKey.PubKey())).
+		AddData(schnorr.SerializePubKey(publicKey)).
 		AddOp(txscript.OP_CHECKSIG).
 		AddOp(txscript.OP_FALSE).
 		AddOp(txscript.OP_IF).
@@ -179,23 +194,24 @@ func createInscriptionTxCtxData(net *chaincfg.Params, data InscriptionData) (*in
 		RootNode: leafNode,
 	}
 
-	controlBlock := proof.ToControlBlock(privateKey.PubKey())
+	controlBlock := proof.ToControlBlock(publicKey)
 	controlBlockWitness, err := controlBlock.ToBytes()
 	if err != nil {
 		return nil, err
 	}
 
 	tapHash := proof.RootNode.TapHash()
-	commitTxAddress, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(txscript.ComputeTaprootOutputKey(privateKey.PubKey(), tapHash[:])), net)
+	commitTxAddress, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(txscript.ComputeTaprootOutputKey(publicKey, tapHash[:])), net)
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("musig commitAddress:", commitTxAddress)
 	commitTxAddressPkScript, err := txscript.PayToAddrScript(commitTxAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	recoveryPrivateKeyWIF, err := btcutil.NewWIF(txscript.TweakTaprootPrivKey(*privateKey, tapHash[:]), net, true)
+	recoveryPrivateKeyWIF, err := btcutil.NewWIF(txscript.TweakTaprootPrivKey(*privateKey[0], tapHash[:]), net, true)
 	if err != nil {
 		return nil, err
 	}
@@ -380,10 +396,12 @@ func (tool *InscriptionTool) completeRevealTx() error {
 		if err != nil {
 			return err
 		}
-		signature, err := schnorr.Sign(tool.txCtxDataList[i].privateKey, witnessArray)
-		if err != nil {
-			return err
-		}
+		signature, _, _ := musig2.TwoPrivSign2(tool.txCtxDataList[i].privateKey[0], tool.txCtxDataList[i].privateKey[1], [32]byte(witnessArray))
+
+		// signature, err := schnorr.Sign(tool.txCtxDataList[i].privateKey, witnessArray)
+		// if err != nil {
+		// 	return err
+		// }
 		witnessList[i] = wire.TxWitness{signature.Serialize(), tool.txCtxDataList[i].inscriptionScript, tool.txCtxDataList[i].controlBlockWitness}
 	}
 	for i := range witnessList {
@@ -427,7 +445,10 @@ func (tool *InscriptionTool) signCommitTx() error {
 				txOut.Value,
 				txOut.PkScript,
 				txscript.SigHashDefault,
-				tool.commitTxPrivateKeyList[i])
+				tool.commitTxPrivateKeyList[i],
+				nil,
+				// tool.txCtxDataList[0].controlBlockWitness,
+			)
 			if err != nil {
 				return err
 			}

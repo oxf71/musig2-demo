@@ -11,7 +11,7 @@ import (
 
 func TaprootWitnessSignature(tx *wire.MsgTx, sigHashes *txscript.TxSigHashes, idx int,
 	amt int64, pkScript []byte, hashType txscript.SigHashType,
-	key *btcec.PrivateKey) (wire.TxWitness, error) {
+	key *btcec.PrivateKey, controlBlockWitness []byte) (wire.TxWitness, error) {
 
 	// As we're assuming this was a BIP 86 key, we use an empty root hash
 	// which means output key commits to just the public key.
@@ -28,6 +28,9 @@ func TaprootWitnessSignature(tx *wire.MsgTx, sigHashes *txscript.TxSigHashes, id
 	// The witness script to spend a taproot input using the key-spend path
 	// is just the signature itself, given the public key is
 	// embedded in the previous output script.
+	if controlBlockWitness != nil {
+		return wire.TxWitness{sig, controlBlockWitness}, nil
+	}
 	return wire.TxWitness{sig}, nil
 }
 
@@ -56,9 +59,9 @@ func RawTxInTaprootSignature(tx *wire.MsgTx, sigHashes *txscript.TxSigHashes, id
 	}
 
 	//TODO: gen tweak
-	// signers := []*btcec.PrivateKey{privKeyTweak}
-	// taprootTweak := []byte{}
-	// musignature, _, _, err := musig2.MultiPartySign(signers, taprootTweak, sigHash)
+	// signers := []*btcec.PrivateKey{privKeyTweak, privKeyTweak}
+	// // taprootTweak := []byte{}
+	// signature, _, _, err := musig2.MultiPartySign(signers, nil, [32]byte(sigHash))
 	// if err != nil {
 	// 	return nil, err
 	// }
