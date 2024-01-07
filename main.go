@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -17,6 +18,8 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi/mempool"
+	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/ord"
 	musig2demo "github.com/oxf71/musig2-demo/musig2"
 )
 
@@ -517,6 +520,166 @@ func SignatureScript(tx *wire.MsgTx, idx int, subscript []byte, hashType txscrip
 	}
 
 	return txscript.NewScriptBuilder().AddData(sig).AddData(pkData).Script()
+}
+func sendTransaction() {
+	netParams := &chaincfg.SigNetParams
+	btcApiClient := mempool.NewClient(netParams)
+
+	// privateKeyHex02 := "4ef5cb1fd5afd08ca9acbe5d077d89f1e095f67616a326d368851e57a92d1bab"
+	// privateKeyByte02, _ := hex.DecodeString(privateKeyHex02)
+	// privateKeyBytes02 := privateKeyByte02 // 用你自己的私钥替换这里的字节
+	// privateKey02, publicKey02 := btcec.PrivKeyFromBytes(privateKeyBytes02)
+	// // 根据公钥生成比特币地址
+	// addressPubKeyHash01 := btcutil.Hash160(publicKey02.SerializeCompressed())
+	// address02, err := btcutil.NewAddressPubKeyHash(addressPubKeyHash01, &chaincfg.TestNet3Params)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// fmt.Println("address: ", address02)
+
+	// 找零地址
+	changeAddress, err := btcutil.DecodeAddress("tb1prggx0jcdqgag2kj9agxa7n6p888ffpzs4flps8ztwctrluz040hq6x9sz8", netParams)
+	if err != nil {
+		fmt.Println("DecodeAddress err:", err)
+		return
+	}
+
+	privKey1, _ := btcec.PrivKeyFromBytes(decodeHex("440bb3ec56d213e90d006d344d74f6478db4f7fa4cdd388095d8f4edef0c5156"))
+	privKey2, _ := btcec.PrivKeyFromBytes(decodeHex(bip340TestVectors[1].secretKey))
+
+	musig2BtcTaprootAddress := musig2demo.TwoBtcTaprootAddress(privKey1, privKey2)
+	// fmt.Println("taprootAddress: ", taprootAddress)
+	// addressPubKeyHash01 := btcutil.Hash160(musig2BtcAddress.SerializeCompressed())
+	// address02, err := btcutil.NewAddressPubKeyHash(addressPubKeyHash01, &chaincfg.TestNet3Params)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// mulsigAddr, err := btcutil.DecodeAddress(musig2BtcAddress, &chaincfg.TestNet3Params)
+	// if err != nil {
+	// 	fmt.Println("DecodeAddress err:", err)
+	// 	return
+	// }
+
+	// fmt.Println("taprootAddress: ", taprootAddress)
+	addressPubKey1 := btcutil.Hash160(privKey1.PubKey().SerializeCompressed())
+	address01, err := btcutil.NewAddressPubKeyHash(addressPubKey1, netParams)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// mulsigAddr := musig2BtcTaprootAddress
+
+	fmt.Println("mulsigAddr:", musig2BtcTaprootAddress)
+	fmt.Println("address 1", address01)
+
+	musig2Address, err := btcutil.DecodeAddress("tb1prggx0jcdqgag2kj9agxa7n6p888ffpzs4flps8ztwctrluz040hq6x9sz8", netParams)
+	if err != nil {
+		fmt.Println("DecodeAddress err:", err)
+		return
+	}
+
+	unspentList, err := btcApiClient.ListUnspent(musig2Address)
+	if err != nil {
+		fmt.Println("ListUnspent err:", err)
+		return
+	}
+	if len(unspentList) == 0 {
+		return
+	}
+	fmt.Println("000000:", len(unspentList))
+
+	// 创建比特币交易输入和输出
+	totalSenderAmount := btcutil.Amount(0)
+	tx := wire.NewMsgTx(wire.TxVersion)
+	for i := range unspentList {
+		in := wire.NewTxIn(unspentList[i].Outpoint, nil, nil)
+		tx.AddTxIn(in)
+		totalSenderAmount += btcutil.Amount(unspentList[i].Output.Value)
+	}
+
+	// 获取目标地址的比特币脚本
+	destAddress, err := btcutil.DecodeAddress("tb1prggx0jcdqgag2kj9agxa7n6p888ffpzs4flps8ztwctrluz040hq6x9sz8", netParams)
+	if err != nil {
+		fmt.Println("DecodeAddress err:", err)
+		return
+	}
+	destinationScript, err := txscript.PayToAddrScript(destAddress)
+	if err != nil {
+		fmt.Println("PayToAddrScript err:", err)
+		return
+	}
+
+	// 计算总金额和交易费用
+	var fee int64 = 1000
+	changeAmount := int64(totalSenderAmount) - 2000 - fee // 减去交易费用，转账2000
+
+	fmt.Println("0000: ", int64(totalSenderAmount))
+
+	// 添加目标地址作为交易输出
+	tx.AddTxOut(wire.NewTxOut(2000, destinationScript))
+
+	var changeScript []byte
+	if changeAmount > 0 {
+		// 添加找零地址作为交易输出
+		changeScript, err = txscript.PayToAddrScript(changeAddress)
+		if err != nil {
+			fmt.Println("PayToAddrScript err:", err)
+			return
+		}
+
+		tx.AddTxOut(wire.NewTxOut(changeAmount, changeScript))
+	}
+
+	// 构建多签赎回脚本
+	for i, v := range tx.TxIn {
+		// sigScriptB, err := SignatureScript(tx, i, changeScript, txscript.SigHashDefault, privKey1, privKey2, true)
+		// if err != nil {
+		// 	fmt.Println("SignatureScript:", err)
+		// 	return
+		// }
+
+		// fmt.Println("sigScriptB:", sigScriptB)
+
+		txOut := txscript.NewMultiPrevOutFetcher(nil).FetchPrevOutput(v.PreviousOutPoint)
+		witness, err := ord.TaprootWitnessSignature(
+			tx,
+			txscript.NewTxSigHashes(tx, txscript.NewMultiPrevOutFetcher(nil)),
+			i,
+			txOut.Value,
+			txOut.PkScript,
+			txscript.SigHashDefault,
+			privKey1,
+			nil,
+			// tool.txCtxDataList[0].controlBlockWitness,
+		)
+		if err != nil {
+			log.Fatal(err)
+		}
+		v.Witness = witness
+		// witnessList[i] = witness
+
+		// v.Witness = wire.TxWitness{sigScriptB.Serialize(), hash}
+
+		// v.SignatureScript = sigScriptB
+	}
+
+	txjsondata, err := json.Marshal(tx)
+	if err != nil {
+		fmt.Println("json.Marshal err:", err)
+		return
+	}
+
+	fmt.Println("txjsondata:", string(txjsondata))
+
+	// 发送交易
+	txHash, err := btcApiClient.BroadcastTx(tx)
+	if err != nil {
+		fmt.Println("BroadcastTx err:", err)
+		return
+	}
+	fmt.Printf("转账成功！交易哈希：%s\n", txHash.String())
+
 }
 
 func main() {

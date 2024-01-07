@@ -34,8 +34,7 @@ func main() {
 	musigPrivKey := musig2demo.TwoBtcTaprootAddress(privKey1, privKey2)
 
 	musigPriv := make([]*btcec.PrivateKey, 0)
-	musigPriv = append(musigPriv, privKey1)
-	musigPriv = append(musigPriv, privKey2)
+	musigPriv = append(musigPriv, privKey1, privKey2)
 
 	musigAddress, _ := btcutil.DecodeAddress(musigPrivKey, netParams)
 
@@ -54,7 +53,7 @@ func main() {
 	}
 
 	fmt.Println("utxoTaprootAddress:", utxoTaprootAddress.EncodeAddress())
-	fmt.Println("musigAddress:", musigAddress.EncodeAddress())
+	fmt.Println("musigAddress no script:", musigAddress.EncodeAddress())
 
 	unspentList, err := btcApiClient.ListUnspent(utxoTaprootAddress)
 

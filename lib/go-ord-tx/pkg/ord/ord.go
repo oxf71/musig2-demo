@@ -92,7 +92,7 @@ func NewInscriptionTool(net *chaincfg.Params, rpcclient *rpcclient.Client, reque
 func NewInscriptionToolWithBtcApiClient(net *chaincfg.Params,
 	btcApiClient btcapi.BTCAPIClient,
 	request *InscriptionRequest,
-	utxoPrivKey []*btcec.PrivateKey,
+	musigPriv []*btcec.PrivateKey,
 ) (*InscriptionTool, error) {
 	if len(request.CommitTxPrivateKeyList) != len(request.CommitTxOutPointList) {
 		return nil, errors.New("the length of CommitTxPrivateKeyList and CommitTxOutPointList should be the same")
@@ -106,12 +106,12 @@ func NewInscriptionToolWithBtcApiClient(net *chaincfg.Params,
 		commitTxPrivateKeyList:    request.CommitTxPrivateKeyList,
 		revealTxPrevOutputFetcher: txscript.NewMultiPrevOutFetcher(nil),
 	}
-	return tool, tool._initTool(net, request, utxoPrivKey)
+	return tool, tool._initTool(net, request, musigPriv)
 }
 
 func (tool *InscriptionTool) _initTool(net *chaincfg.Params,
 	request *InscriptionRequest,
-	utxoPrivKey []*btcec.PrivateKey,
+	musigPriv []*btcec.PrivateKey,
 ) error {
 	revealOutValue := defaultRevealOutValue
 	if request.RevealOutValue > 0 {
@@ -120,7 +120,7 @@ func (tool *InscriptionTool) _initTool(net *chaincfg.Params,
 	tool.txCtxDataList = make([]*inscriptionTxCtxData, len(request.DataList))
 	destinations := make([]string, len(request.DataList))
 	for i := 0; i < len(request.DataList); i++ {
-		txCtxData, err := createInscriptionTxCtxData(net, request.DataList[i], utxoPrivKey)
+		txCtxData, err := createInscriptionTxCtxData(net, request.DataList[i], musigPriv)
 		if err != nil {
 			return err
 		}
@@ -148,7 +148,7 @@ func (tool *InscriptionTool) _initTool(net *chaincfg.Params,
 
 func createInscriptionTxCtxData(net *chaincfg.Params,
 	data InscriptionData,
-	privateKey []*btcec.PrivateKey,
+	musigPriv []*btcec.PrivateKey,
 ) (*inscriptionTxCtxData, error) {
 	// privateKey, err := btcec.NewPrivateKey()
 	// if err != nil {
@@ -156,7 +156,7 @@ func createInscriptionTxCtxData(net *chaincfg.Params,
 	// }
 	//
 
-	publicKey, _ := musig2.TwoCombinedKey(privateKey[0], privateKey[1])
+	publicKey, _ := musig2.TwoCombinedKey(musigPriv[0], musigPriv[1])
 
 	inscriptionBuilder := txscript.NewScriptBuilder().
 		AddData(schnorr.SerializePubKey(publicKey)).
@@ -211,13 +211,13 @@ func createInscriptionTxCtxData(net *chaincfg.Params,
 		return nil, err
 	}
 
-	recoveryPrivateKeyWIF, err := btcutil.NewWIF(txscript.TweakTaprootPrivKey(*privateKey[0], tapHash[:]), net, true)
+	recoveryPrivateKeyWIF, err := btcutil.NewWIF(txscript.TweakTaprootPrivKey(*musigPriv[0], tapHash[:]), net, true)
 	if err != nil {
 		return nil, err
 	}
 
 	return &inscriptionTxCtxData{
-		privateKey:              privateKey,
+		privateKey:              musigPriv,
 		inscriptionScript:       inscriptionScript,
 		commitTxAddressPkScript: commitTxAddressPkScript,
 		controlBlockWitness:     controlBlockWitness,
