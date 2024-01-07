@@ -27,7 +27,7 @@ early nonce gen
 	privKey2, _ := btcec.PrivKeyFromBytes(decodeHex(bip340TestVectors[1].secretKey))
 
 	musig2_early_demo()
-	msg := []byte("msg hello")
+	msg := sha256.Sum256([]byte("msg hello"))
 	sign, hash, err := musig2demo.TwoPrivSign2(privKey1, privKey2, msg)
 	if err != nil {
 		log.Fatal(err)
@@ -68,8 +68,8 @@ taproot_tweaked_x_only
 	}
 
 	priv := []*btcec.PrivateKey{privKey1, privKey2}
-
-	sign, combinedKey, hash, err := musig2demo.MultiPartySign(priv, testTweak[:], []byte("test"))
+    msg := sha256.Sum256([]byte("msg hello"))
+	sign, combinedKey, hash, err := musig2demo.MultiPartySign(priv, testTweak[:], msg)
 	if err != nil {
 		t.Fatal(err)
 	}
