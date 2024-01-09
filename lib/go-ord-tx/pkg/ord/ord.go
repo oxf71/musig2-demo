@@ -6,14 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi"
 	extRpcClient "github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/rpcclient"
-	"github.com/oxf71/musig2-demo/musig2"
+	musig2demo "github.com/oxf71/musig2-demo/musig2"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -155,8 +157,17 @@ func createInscriptionTxCtxData(net *chaincfg.Params,
 	// 	return nil, err
 	// }
 	//
-
-	publicKey, _ := musig2.TwoCombinedKey(musigPriv[0], musigPriv[1])
+	muSig2Tweaks := musig2demo.MuSig2Tweaks{
+		TaprootBIP0086Tweak: false,
+		// TaprootTweak:        testTweak[:],
+		// GenericTweaks: []musig2.KeyTweakDesc{},
+	}
+	allSignerPubKeys := []*btcec.PublicKey{musigPriv[0].PubKey(), musigPriv[1].PubKey()}
+	combinedKey, err := musig2demo.MuSig2CombineKeys(allSignerPubKeys, false, &muSig2Tweaks)
+	if err != nil {
+		return nil, err
+	}
+	publicKey := combinedKey.FinalKey
 
 	inscriptionBuilder := txscript.NewScriptBuilder().
 		AddData(schnorr.SerializePubKey(publicKey)).
@@ -391,12 +402,89 @@ func (tool *InscriptionTool) completeRevealTx() error {
 			revealTx = tool.revealTx[i]
 			idx = 0
 		}
-		witnessArray, err := txscript.CalcTapscriptSignaturehash(txscript.NewTxSigHashes(revealTx, tool.revealTxPrevOutputFetcher),
-			txscript.SigHashDefault, revealTx, idx, tool.revealTxPrevOutputFetcher, txscript.NewBaseTapLeaf(tool.txCtxDataList[i].inscriptionScript))
+		witnessArray, err := txscript.CalcTapscriptSignaturehash(
+			txscript.NewTxSigHashes(revealTx, tool.revealTxPrevOutputFetcher),
+			txscript.SigHashDefault,
+			revealTx,
+			idx,
+			tool.revealTxPrevOutputFetcher,
+			txscript.NewBaseTapLeaf(tool.txCtxDataList[i].inscriptionScript))
 		if err != nil {
 			return err
 		}
-		signature, _, _ := musig2.TwoPrivSign2(tool.txCtxDataList[i].privateKey[0], tool.txCtxDataList[i].privateKey[1], [32]byte(witnessArray))
+
+		muSig2Tweaks := musig2demo.MuSig2Tweaks{
+			TaprootBIP0086Tweak: false,
+			// TaprootTweak:        testTweak[:],
+			// GenericTweaks: []musig2.KeyTweakDesc{},
+		}
+		allSignerPubKeys := []*btcec.PublicKey{tool.txCtxDataList[i].privateKey[0].PubKey(), tool.txCtxDataList[i].privateKey[1].PubKey()}
+		// sign msg
+		nonce2chan := make(chan [musig2.PubNonceSize]byte, 10)
+		nonce1chan := make(chan [musig2.PubNonceSize]byte, 10)
+		partialSignature2 := make(chan musig2.PartialSignature)
+		finalSig := make(chan schnorr.Signature, 10)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			// priv1
+			_, session1, err := musig2demo.MuSig2CreateContext(tool.txCtxDataList[i].privateKey[0], allSignerPubKeys, &muSig2Tweaks)
+			if err != nil {
+				log.Fatal(err)
+			}
+			nonce1 := session1.PublicNonce()
+
+			nonce1chan <- nonce1
+
+			nonce2 := <-nonce2chan
+			_, err = session1.RegisterPubNonce(nonce2)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			_, err = musig2demo.MuSig2Sign(session1, [32]byte(witnessArray), false)
+			if err != nil {
+				log.Fatal(err)
+			}
+			partial2 := <-partialSignature2
+
+			_, err = musig2demo.MuSig2CombineSig(session1, &partial2)
+			if err != nil {
+				log.Fatal(err)
+			}
+			finalSig <- *musig2demo.MuSig2FinalSig(session1)
+		}()
+
+		go func() {
+			// priv2
+			_, session2, err := musig2demo.MuSig2CreateContext(tool.txCtxDataList[i].privateKey[1], allSignerPubKeys, &muSig2Tweaks)
+			if err != nil {
+				log.Fatal(err)
+			}
+			nonce2 := session2.PublicNonce()
+
+			nonce2chan <- nonce2
+
+			nonce1 := <-nonce1chan
+			_, err = session2.RegisterPubNonce(nonce1)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			partial2, err := musig2demo.MuSig2Sign(session2, [32]byte(witnessArray), false)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			partialSignature2 <- *partial2
+			wg.Done()
+		}()
+		wg.Wait()
+
+		signature := <-finalSig
+
+		// signature, _, _ := musig2.TwoPrivSign2(tool.txCtxDataList[i].privateKey[0], tool.txCtxDataList[i].privateKey[1], [32]byte(witnessArray))
 
 		// signature, err := schnorr.Sign(tool.txCtxDataList[i].privateKey, witnessArray)
 		// if err != nil {
