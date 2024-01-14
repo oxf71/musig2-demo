@@ -1,6 +1,10 @@
 package ord
 
 import (
+	"fmt"
+
+	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -57,7 +61,7 @@ func RawTxInTaprootSignature(tx *wire.MsgTx, sigHashes *txscript.TxSigHashes, id
 	if err != nil {
 		return nil, err
 	}
-
+	signature.Serialize()
 	//TODO: gen tweak
 	// signers := []*btcec.PrivateKey{privKeyTweak, privKeyTweak}
 	// // taprootTweak := []byte{}
@@ -73,6 +77,12 @@ func RawTxInTaprootSignature(tx *wire.MsgTx, sigHashes *txscript.TxSigHashes, id
 	if hashType&txscript.SigHashDefault == txscript.SigHashDefault {
 		return sig, nil
 	}
+
+	// der, _ := hex.DecodeString("30440220")
+
+	// fmt.Println("der", der)
+	// finaleSig := append(der, sig...)
+	// finaleSig = append(finaleSig, byte(hashType))
 
 	// Otherwise, append the sighash type to the final sig.
 	return append(sig, byte(hashType)), nil
@@ -107,4 +117,106 @@ func TweakTaprootPrivKey(privKey btcec.PrivateKey,
 	privTweak := privKeyScalar.Add(&tweakScalar)
 
 	return btcec.PrivKeyFromScalar(privTweak)
+}
+func TaprootWitnessSignatureTest(tx *wire.MsgTx, sigHashes *txscript.TxSigHashes, idx int,
+	amt int64, pkScript []byte, hashType txscript.SigHashType,
+	key *btcec.PrivateKey) (*schnorr.Signature, error) {
+
+	// As we're assuming this was a BIP 86 key, we use an empty root hash
+	// which means output key commits to just the public key.
+	fakeTapscriptRootHash := []byte{}
+
+	return RawTxInTaprootSignatureTest(
+		tx, sigHashes, idx, amt, pkScript, fakeTapscriptRootHash,
+		hashType, key,
+	)
+
+}
+func signSegWitV0(tx *wire.MsgTx, sigHashes *txscript.TxSigHashes, idx int,
+	amt int64, pkScript []byte, hashType txscript.SigHashType,
+	key *btcec.PrivateKey) ([]byte, error) {
+
+	// We have everything we need for signing the input now.
+	sig, err := txscript.RawTxInWitnessSignature(
+		tx, sigHashes, idx, amt, pkScript,
+		hashType, key,
+	)
+
+	if err != nil {
+		return nil, fmt.Errorf("error signing input %d: %v", idx, err)
+	}
+
+	return sig, nil
+}
+func RawTxInTaprootSignatureTest(tx *wire.MsgTx, sigHashes *txscript.TxSigHashes, idx int,
+	amt int64, pkScript []byte, tapScriptRootHash []byte, hashType txscript.SigHashType,
+	key *btcec.PrivateKey) (*schnorr.Signature, error) {
+
+	// First, we'll start by compute the top-level taproot sighash.
+	sigHash, err := txscript.CalcTaprootSignatureHash(
+		sigHashes, hashType, tx, idx,
+		txscript.NewCannedPrevOutputFetcher(pkScript, amt),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Before we sign the sighash, we'll need to apply the taptweak to the
+	// private key based on the tapScriptRootHash.
+	privKeyTweak := TweakTaprootPrivKey(*key, tapScriptRootHash)
+
+	// With the sighash constructed, we can sign it with the specified
+	// private key.
+	signature, err := schnorr.Sign(privKeyTweak, sigHash)
+	if err != nil {
+		return nil, err
+	}
+	//TODO: gen tweak
+	// signers := []*btcec.PrivateKey{privKeyTweak, privKeyTweak}
+	// // taprootTweak := []byte{}
+	// signature, _, _, err := musig2.MultiPartySign(signers, nil, [32]byte(sigHash))
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	return signature, nil
+
+}
+
+// RawTxInSignature returns the serialized ECDSA signature for the input idx of
+// the given transaction, with hashType appended to it.
+func RawTxInSignature(tx *wire.MsgTx, idx int, subScript []byte,
+	hashType txscript.SigHashType, key *btcec.PrivateKey) ([]byte, error) {
+
+	hash, err := txscript.CalcSignatureHash(subScript, hashType, tx, idx)
+	if err != nil {
+		return nil, err
+	}
+	signature := ecdsa.Sign(key, hash)
+
+	return signature.Serialize(), nil
+}
+func WitnessSignature(tx *wire.MsgTx, sigHashes *txscript.TxSigHashes, idx int, amt int64,
+	subscript []byte, hashType txscript.SigHashType, privKey *btcec.PrivateKey,
+	compress bool) ([]byte, error) {
+
+	sig, err := txscript.RawTxInWitnessSignature(tx, sigHashes, idx, amt, subscript,
+		hashType, privKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return sig, nil
+
+	// pk := privKey.PubKey()
+	// var pkData []byte
+	// if compress {
+	// 	pkData = pk.SerializeCompressed()
+	// } else {
+	// 	pkData = pk.SerializeUncompressed()
+	// }
+
+	// // A witness script is actually a stack, so we return an array of byte
+	// // slices here, rather than a single byte slice.
+	// return wire.TxWitness{sig, pkData}, nil
 }

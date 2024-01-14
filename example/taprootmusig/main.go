@@ -6,14 +6,12 @@ import (
 	"log"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi/mempool"
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/ord"
-	musig2demo "github.com/oxf71/musig2-demo/musig2"
+	"github.com/oxf71/musig2-demo/psbt"
 )
 
 func decodeHex(hexStr string) []byte {
@@ -26,36 +24,46 @@ func decodeHex(hexStr string) []byte {
 	return b
 }
 func main() {
-	netParams := &chaincfg.SigNetParams
+	netParams := &chaincfg.TestNet3Params
 	btcApiClient := mempool.NewClient(netParams)
-	privKey1, _ := btcec.PrivKeyFromBytes(decodeHex("440bb3ec56d213e90d006d344d74f6478db4f7fa4cdd388095d8f4edef0c5156"))
-	privKey2, _ := btcec.PrivKeyFromBytes(decodeHex("e0087817fd1d1154a781c11b394a0dcec82f076bbf026df9d61667ead16fa778"))
+	privKey1, publicKey1 := btcec.PrivKeyFromBytes(decodeHex("440bb3ec56d213e90d006d344d74f6478db4f7fa4cdd388095d8f4edef0c5156"))
+	privKey2, publicKey2 := btcec.PrivKeyFromBytes(decodeHex("e0087817fd1d1154a781c11b394a0dcec82f076bbf026df9d61667ead16fa778"))
+	_, publicKey3 := btcec.PrivKeyFromBytes(decodeHex("e0087817fd1d1154a781c11b394a0dcec82f076bbf026df9d61667ead16fa771"))
+	publicKey1Hex := hex.EncodeToString(publicKey1.SerializeCompressed())
+	publicKey2Hex := hex.EncodeToString(publicKey2.SerializeCompressed())
+	publicKey3Hex := hex.EncodeToString(publicKey3.SerializeCompressed())
+	allSignerPubKeys := []string{publicKey1Hex, publicKey2Hex, publicKey3Hex}
+	// gen 2-3 multi address
 
-	musigPrivKey := musig2demo.TwoBtcTaprootAddress(privKey1, privKey2)
+	multiTaprootAddress, multiScript, err := psbt.GenerateMultiTaprootAddress(allSignerPubKeys, 2, netParams)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// musigPrivKey := musig2demo.TwoBtcTaprootAddress(privKey1, privKey2)
 
 	musigPriv := make([]*btcec.PrivateKey, 0)
 	musigPriv = append(musigPriv, privKey1, privKey2)
 
-	musigAddress, _ := btcutil.DecodeAddress(musigPrivKey, netParams)
+	musigAddress, _ := btcutil.DecodeAddress(multiTaprootAddress, netParams)
 
-	utxoPrivateKeyHex := "440bb3ec56d213e90d006d344d74f6478db4f7fa4cdd388095d8f4edef0c5156"
-	utxoPrivateKeyBytes, err := hex.DecodeString(utxoPrivateKeyHex)
-	if err != nil {
-		log.Fatal(err)
-	}
-	utxoPrivateKey, _ := btcec.PrivKeyFromBytes(utxoPrivateKeyBytes)
+	// // // // utxoPrivateKeyHex := "440bb3ec56d213e90d006d344d74f6478db4f7fa4cdd388095d8f4edef0c5156"
+	// // // utxoPrivateKeyBytes, err := hex.DecodeString(utxoPrivateKeyHex)
+	// // if err != nil {
+	// // 	log.Fatal(err)
+	// }
+	// utxoPrivateKey, _ := btcec.PrivKeyFromBytes(utxoPrivateKeyBytes)
 
-	utxoPublicKey := utxoPrivateKey.PubKey()
+	// utxoPublicKey := utxoPrivateKey.PubKey()
 
-	utxoTaprootAddress, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(txscript.ComputeTaprootKeyNoScript(utxoPublicKey)), netParams)
-	if err != nil {
-		log.Fatal(err)
-	}
+	// utxoTaprootAddress, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(txscript.ComputeTaprootKeyNoScript(utxoPublicKey)), netParams)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
-	fmt.Println("utxoTaprootAddress:", utxoTaprootAddress.EncodeAddress())
+	// fmt.Println("utxoTaprootAddress:", utxoTaprootAddress.EncodeAddress())
 	fmt.Println("musigAddress no script:", musigAddress.EncodeAddress())
 
-	unspentList, err := btcApiClient.ListUnspent(utxoTaprootAddress)
+	unspentList, err := btcApiClient.ListUnspent(musigAddress)
 
 	if err != nil {
 		log.Fatalf("list unspent err %v", err)
@@ -68,12 +76,13 @@ func main() {
 	commitTxOutPointList := make([]*wire.OutPoint, 0)
 	commitTxPrivateKeyList := make([]*btcec.PrivateKey, 0)
 	for i := range unspentList {
-		// if i > 0 {
-		// 	break
-		// }
+		if i > 0 {
+			break
+		}
 		commitTxOutPointList = append(commitTxOutPointList, unspentList[i].Outpoint)
-		commitTxPrivateKeyList = append(commitTxPrivateKeyList, utxoPrivateKey)
+		commitTxPrivateKeyList = append(commitTxPrivateKeyList, privKey1)
 		fmt.Println("unspentList:", unspentList[i].Outpoint)
+		fmt.Println("unspentList out:", unspentList[i].Output)
 	}
 
 	// panic("err")
@@ -93,6 +102,8 @@ func main() {
 		FeeRate:                19,
 		DataList:               dataList,
 		SingleRevealTxOnly:     false,
+		MultiScript:            multiScript,
+		MultiPriv:              musigPriv,
 	}
 
 	tool, err := ord.NewInscriptionToolWithBtcApiClient(netParams, btcApiClient, &request, musigPriv)

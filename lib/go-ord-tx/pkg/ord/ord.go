@@ -44,6 +44,8 @@ type InscriptionRequest struct {
 	SingleRevealTxOnly bool // Currently, the official Ordinal parser can only parse a single NFT per transaction.
 	// When the official Ordinal parser supports parsing multiple NFTs in the future, we can consider using a single reveal transaction.
 	RevealOutValue int64
+	MultiScript    []byte
+	MultiPriv      []*btcec.PrivateKey
 }
 
 type inscriptionTxCtxData struct {
@@ -69,6 +71,8 @@ type InscriptionTool struct {
 	revealTxPrevOutputFetcher *txscript.MultiPrevOutFetcher
 	revealTx                  []*wire.MsgTx
 	commitTx                  *wire.MsgTx
+	MultiScript               []byte
+	MultiPriv                 []*btcec.PrivateKey
 }
 
 const (
@@ -107,6 +111,8 @@ func NewInscriptionToolWithBtcApiClient(net *chaincfg.Params,
 		commitTxPrevOutputFetcher: txscript.NewMultiPrevOutFetcher(nil),
 		commitTxPrivateKeyList:    request.CommitTxPrivateKeyList,
 		revealTxPrevOutputFetcher: txscript.NewMultiPrevOutFetcher(nil),
+		MultiScript:               request.MultiScript,
+		MultiPriv:                 request.MultiPriv,
 	}
 	return tool, tool._initTool(net, request, musigPriv)
 }
@@ -523,28 +529,138 @@ func (tool *InscriptionTool) signCommitTx() error {
 		tool.commitTx = commitSignTransaction
 	} else {
 		fmt.Println("taproot sign")
-		witnessList := make([]wire.TxWitness, len(tool.commitTx.TxIn))
+		// witnessList := make([]wire.TxWitness, len(tool.commitTx.TxIn))
 		for i := range tool.commitTx.TxIn {
 			txOut := tool.commitTxPrevOutputFetcher.FetchPrevOutput(tool.commitTx.TxIn[i].PreviousOutPoint)
-			witness, err := TaprootWitnessSignature(
+			fmt.Println(txOut.PkScript)
+			// esig, err := txscript.RawTxInSignature(
+			// 	tool.commitTx,
+			// 	i,
+			// 	txOut.PkScript,
+			// 	txscript.SigHashAll,
+			// 	tool.MultiPriv[0],
+			// )
+			sig, err := TaprootWitnessSignatureTest(
 				tool.commitTx,
 				txscript.NewTxSigHashes(tool.commitTx, tool.commitTxPrevOutputFetcher),
 				i,
 				txOut.Value,
 				txOut.PkScript,
-				txscript.SigHashDefault,
-				tool.commitTxPrivateKeyList[i],
-				nil,
-				// tool.txCtxDataList[0].controlBlockWitness,
+				txscript.SigHashAll,
+				tool.MultiPriv[0],
 			)
 			if err != nil {
 				return err
 			}
-			witnessList[i] = witness
+			rBytes := sig.Serialize()[:32]
+			sBytes := sig.Serialize()[32:64]
+
+			fmt.Println("sig len", len(sig.Serialize()))
+			fmt.Println("sig rbytes:", hex.EncodeToString(rBytes))
+			fmt.Println("sig sbytes:", hex.EncodeToString(sBytes))
+
+			newsig := []byte{}
+			newsig2 := []byte{}
+
+			derprefix, _ := hex.DecodeString("30440220")
+
+			newsig = append(newsig, derprefix...)
+			newsig = append(newsig, rBytes...)
+			sLen, _ := hex.DecodeString("0220")
+			derversion, _ := hex.DecodeString("01")
+			newsig = append(newsig, sLen...)
+			newsig = append(newsig, sBytes...)
+			newsig = append(newsig, derversion...)
+
+			// 创建一个包含公钥和签名的结构
+			// schnorrSignature := struct {
+			// 	PubKey    *btcec.PublicKey
+			// 	Signature []byte
+			// }{
+			// 	PubKey:    tool.MultiPriv[0].PubKey(),
+			// 	Signature: sig.Serialize(),
+			// }
+			// ecdsa.ParseDERSignature()
+			// 对签名进行DER编码
+			// derSignature, err := asn1.Marshal(sig)
+			// if err != nil {
+			// 	fmt.Println("Failed to encode signature:", err)
+			// 	return err
+			// }
+			// esig2, err := txscript.RawTxInSignature(
+			// 	tool.commitTx,
+			// 	i,
+			// 	txOut.PkScript,
+			// 	txscript.SigHashAll,
+			// 	tool.MultiPriv[1],
+			// )
+
+			sig2, err := TaprootWitnessSignatureTest(
+				tool.commitTx,
+				txscript.NewTxSigHashes(tool.commitTx, tool.commitTxPrevOutputFetcher),
+				i,
+				txOut.Value,
+				txOut.PkScript,
+				txscript.SigHashAll,
+				tool.MultiPriv[1],
+			)
+			if err != nil {
+				return err
+			}
+
+			witnessSig1, err := WitnessSignature(
+				tool.commitTx,
+				txscript.NewTxSigHashes(tool.commitTx, tool.commitTxPrevOutputFetcher),
+				i,
+				txOut.Value,
+				tool.MultiScript,
+				txscript.SigHashAll,
+				tool.MultiPriv[0],
+				true,
+			)
+
+			witnessSig2, err := WitnessSignature(
+				tool.commitTx,
+				txscript.NewTxSigHashes(tool.commitTx, tool.commitTxPrevOutputFetcher),
+				i,
+				txOut.Value,
+				tool.MultiScript,
+				txscript.SigHashAll,
+				tool.MultiPriv[1],
+				true,
+			)
+
+			if err != nil {
+				return err
+			}
+
+			rBytes2 := sig2.Serialize()[:32]
+			sBytes2 := sig2.Serialize()[32:64]
+
+			newsig2 = append(newsig2, derprefix...)
+			newsig2 = append(newsig2, rBytes2...)
+			newsig2 = append(newsig2, sLen...)
+			newsig2 = append(newsig2, sBytes2...)
+			newsig2 = append(newsig2, derversion...)
+
+			fmt.Println("sig:", hex.EncodeToString(newsig))
+			fmt.Println("sig2:", hex.EncodeToString(newsig2))
+			fmt.Println("multi script:", hex.EncodeToString(tool.MultiScript))
+			// txscript.WitnessStack
+			// for k, v := range witnessSig1 {
+			// 	fmt.Println("witness:", k, hex.EncodeToString(v))
+			// }
+			fmt.Println("witnesssig:", witnessSig1)
+			fmt.Println("witnesssig2:", witnessSig2)
+			// witnessList[i] = wire.TxWitness{nil, esig, esig2, tool.MultiScript}
+			tool.commitTx.TxIn[i].Witness = wire.TxWitness{nil, witnessSig1, witnessSig2, tool.MultiScript}
+
+			// tool.commitTx.TxIn[i].SignatureScript = esig
 		}
-		for i := range witnessList {
-			tool.commitTx.TxIn[i].Witness = witnessList[i]
-		}
+		// for i := range witnessList {
+
+		// 	tool.commitTx.TxIn[i].Witness = witnessList[i]
+		// }
 	}
 	return nil
 }

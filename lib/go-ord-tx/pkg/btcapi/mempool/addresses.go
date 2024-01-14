@@ -3,11 +3,13 @@ package mempool
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi"
-	"net/http"
 )
 
 type UTXO struct {
@@ -43,9 +45,13 @@ func (c *MempoolClient) ListUnspent(address btcutil.Address) ([]*btcapi.UnspentO
 		if err != nil {
 			return nil, err
 		}
+		pkScript, err := txscript.PayToAddrScript(address)
+		if err != nil {
+			return nil, err
+		}
 		unspentOutputs = append(unspentOutputs, &btcapi.UnspentOutput{
 			Outpoint: wire.NewOutPoint(txHash, uint32(utxo.Vout)),
-			Output:   wire.NewTxOut(utxo.Value, address.ScriptAddress()),
+			Output:   wire.NewTxOut(utxo.Value, pkScript),
 		})
 	}
 	return unspentOutputs, nil
