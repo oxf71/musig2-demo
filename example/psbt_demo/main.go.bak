@@ -1,0 +1,103 @@
+package main
+
+import (
+	"encoding/hex"
+	"fmt"
+
+	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
+	"github.com/btcsuite/btcutil/psbt"
+)
+
+func main() {
+	// 定义输入和输出金额
+	inputAmount := int64(100000000) // 1 BTC
+	outputAmount := int64(90000000) // 0.9 BTC
+
+	// 定义参与者的公钥和私钥
+	publicKeys := []string{
+		"035a8b22a8d1b3b7d8d1c8e9aa4c8b2a0f0c9e8d1b3b7d8d1c8e9aa4c8b2a0f0c",
+		"03b6c8e9aa4c8b2a0f0c9e8d1b3b7d8d1c8e9aa4c8b2a0f0c9e8d1b3b7d8d1c8e",
+		"02a8d1b3b7d8d1c8e9aa4c8b2a0f0c9e8d1b3b7d8d1c8e9aa4c8b2a0f0c9e8d1",
+	}
+
+	privateKeys := []string{
+		"3a7b7d8d1c8e9aa4c8b2a0f0c9e8d1b3b7d8d1c8e9aa4c8b2a0f0c9e8d1b3b",
+		"3c9e8d1b3b7d8d1c8e9aa4c8b2a0f0c9e8d1b3b7d8d1c8e9aa4c8b2a0f0c9e",
+		"3e9aa4c8b2a0f0c9e8d1b3b7d8d1c8e9aa4c8b2a0f0c9e8d1b3b7d8d1c8e9a",
+	}
+
+	// 解码公钥和私钥
+	var publicKeysParsed []*btcutil.AddressPubKeyHash
+	var privateKeysParsed []*btcutil.WIF
+
+	for _, publicKeyHex := range publicKeys {
+		publicKeyBytes, _ := hex.DecodeString(publicKeyHex)
+		publicKeyAddr, _ := btcutil.NewAddressPubKeyHash(btcutil.Hash160(publicKeyBytes), &chaincfg.TestNet3Params)
+		publicKeysParsed = append(publicKeysParsed, publicKeyAddr)
+	}
+
+	for _, privateKeyHex := range privateKeys {
+		privateKeyBytes, _ := hex.DecodeString(privateKeyHex)
+		privateKey, _ := btcutil.NewWIF(privateKeyBytes, &chaincfg.TestNet3Params, true)
+		privateKeysParsed = append(privateKeysParsed, privateKey)
+	}
+
+	// 构建交易
+	tx := wire.NewMsgTx(wire.TxVersion)
+
+	// 添加输入
+	outpointStr := "e6c15f1a5a8f2f1f7c1c6b7e4d3a2c1d8f2d3e4c5b6a7a8b9c0d1e2f3a4b5c6:0"
+	outpointHash, _ := wire.NewShaHashFromStr(outpointStr[:64])
+	outpoint := wire.NewOutPoint(outpointHash, 0)
+	txIn := wire.NewTxIn(outpoint, nil, nil)
+	tx.AddTxIn(txIn)
+
+	// 添加输出
+	outputAddr, _ := btcutil.DecodeAddress("2N6YZ6j5xV6n3w8dFJxemG4G2kZpM4VUQ3a", &chaincfg.TestNet3Params)
+	script, _ := txscript.PayToAddrScript(outputAddr)
+	txOut := wire.NewTxOut(outputAmount, script)
+	tx.AddTxOut(txOut)
+
+	// 构建PSBT
+	psbt := psbt.New(tx)
+
+	// 接下来，我们将为每个参与者创建一个输入，并对每个输入进行部分签名。
+
+	// go
+	// 为每个参与者创建输入
+	for i, publicKey := range publicKeysParsed {
+		psbtIn := psbt.MakeInWitnessUTXOEntry(txIn.PreviousOutPoint)
+		psbtIn.WitnessUtxo = &wire.TxOut{
+			Value:    inputAmount,
+			PkScript: publicKey.ScriptAddress(),
+		}
+		psbt.AddIn(psbtIn)
+
+		// 使用对应的私钥进行部分签名
+		sigHashes := txscript.NewTxSigHashes(tx)
+		sig, err := txscript.RawTxInWitnessSignature(tx, sigHashes, i, inputAmount, publicKey.ScriptAddress(), txscript.SigHashAll, privateKeysParsed[i].PrivKey)
+		if err != nil {
+			fmt.Printf("Failed to sign input %d: %v\n", i, err)
+			return
+		}
+
+		psbtInPartialSig := psbt.MakeInPartialSigEntry(txIn.PreviousOutPoint)
+		psbtInPartialSig.PartialSig = append(psbtInPartialSig.PartialSig, &psbt.PartialSig{
+			PubKey: publicKey.SerializeCompressed(),
+			Sig:    sig,
+		})
+		psbt.AddIn(psbtInPartialSig)
+	}
+	// 打印并序列化PSBT
+	psbtBytes, err := psbt.Serialize()
+	if err != nil {
+		fmt.Println("Failed to serialize PSBT:", err)
+		return
+	}
+
+	psbtHex := hex.EncodeToString(psbtBytes)
+	fmt.Println("PSBT:", psbtHex)
+}

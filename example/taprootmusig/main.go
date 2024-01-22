@@ -76,13 +76,14 @@ func main() {
 	commitTxOutPointList := make([]*wire.OutPoint, 0)
 	commitTxPrivateKeyList := make([]*btcec.PrivateKey, 0)
 	for i := range unspentList {
-		if i > 0 {
-			break
+
+		if unspentList[i].Outpoint.Hash.String() == "0b758e6a33bc0589cd8425f9f87e9d564a4062a70bf291a9ee49de0c009cae57" {
+			commitTxOutPointList = append(commitTxOutPointList, unspentList[i].Outpoint)
+			commitTxPrivateKeyList = append(commitTxPrivateKeyList, privKey1)
+			fmt.Println("unspentList:", unspentList[i].Outpoint)
+			fmt.Println("unspentList out:", unspentList[i].Output)
 		}
-		commitTxOutPointList = append(commitTxOutPointList, unspentList[i].Outpoint)
-		commitTxPrivateKeyList = append(commitTxPrivateKeyList, privKey1)
-		fmt.Println("unspentList:", unspentList[i].Outpoint)
-		fmt.Println("unspentList out:", unspentList[i].Output)
+
 	}
 
 	// panic("err")

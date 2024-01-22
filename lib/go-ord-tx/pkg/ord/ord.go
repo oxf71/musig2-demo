@@ -6,16 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"sync"
 
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi"
 	extRpcClient "github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/rpcclient"
-	musig2demo "github.com/oxf71/musig2-demo/musig2"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr/musig2"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -163,20 +160,21 @@ func createInscriptionTxCtxData(net *chaincfg.Params,
 	// 	return nil, err
 	// }
 	//
-	muSig2Tweaks := musig2demo.MuSig2Tweaks{
-		TaprootBIP0086Tweak: false,
-		// TaprootTweak:        testTweak[:],
-		// GenericTweaks: []musig2.KeyTweakDesc{},
-	}
-	allSignerPubKeys := []*btcec.PublicKey{musigPriv[0].PubKey(), musigPriv[1].PubKey()}
-	combinedKey, err := musig2demo.MuSig2CombineKeys(allSignerPubKeys, false, &muSig2Tweaks)
-	if err != nil {
-		return nil, err
-	}
-	publicKey := combinedKey.FinalKey
+	// public key: be6d1a2deb51ffbf1de2ab91f18f0f58a8fc363c9b9b46808fed2b14fadc4a05
+	// muSig2Tweaks := musig2demo.MuSig2Tweaks{
+	// 	TaprootBIP0086Tweak: false,
+	// 	// TaprootTweak:        testTweak[:],
+	// 	// GenericTweaks: []musig2.KeyTweakDesc{},
+	// }
+	// allSignerPubKeys := []*btcec.PublicKey{musigPriv[0].PubKey(), musigPriv[1].PubKey()}
+	// combinedKey, err := musig2demo.MuSig2CombineKeys(allSignerPubKeys, false, &muSig2Tweaks)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	publicKey, _ := hex.DecodeString("be6d1a2deb51ffbf1de2ab91f18f0f58a8fc363c9b9b46808fed2b14fadc4a05")
 
 	inscriptionBuilder := txscript.NewScriptBuilder().
-		AddData(schnorr.SerializePubKey(publicKey)).
+		AddData(publicKey).
 		AddOp(txscript.OP_CHECKSIG).
 		AddOp(txscript.OP_FALSE).
 		AddOp(txscript.OP_IF).
@@ -210,15 +208,39 @@ func createInscriptionTxCtxData(net *chaincfg.Params,
 		TapLeaf:  leafNode,
 		RootNode: leafNode,
 	}
+	fmt.Println("public key len:", len(publicKey))
+	// var x, y secp.FieldVal
+	// x.SetByteSlice(publicKey[:])
+	// // btcec.ParsePubKey()
+	// // btcec.FieldVal()
+	// pk, err := secp.ParsePubKey(publicKey)
+	// if err != nil {
+	// 	fmt.Println("parse pub key err:", err)
+	// 	return nil, err
+	// }
+	// 0x02
+	compress, err := hex.DecodeString("02")
+	if err != nil {
+		return nil, err
+	}
+	publicKeyTest := []byte{}
+	publicKeyTest = append(publicKeyTest, compress...)
+	publicKeyTest = append(publicKeyTest, publicKey...)
+	pk, err := btcec.ParsePubKey(publicKeyTest)
+	if err != nil {
+		fmt.Println("parse pubkey err:", err)
+		return nil, err
+	}
+	// btcec.NewPublicKey()
 
-	controlBlock := proof.ToControlBlock(publicKey)
+	controlBlock := proof.ToControlBlock(pk)
 	controlBlockWitness, err := controlBlock.ToBytes()
 	if err != nil {
 		return nil, err
 	}
 
 	tapHash := proof.RootNode.TapHash()
-	commitTxAddress, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(txscript.ComputeTaprootOutputKey(publicKey, tapHash[:])), net)
+	commitTxAddress, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(txscript.ComputeTaprootOutputKey(pk, tapHash[:])), net)
 	if err != nil {
 		return nil, err
 	}
@@ -418,77 +440,10 @@ func (tool *InscriptionTool) completeRevealTx() error {
 		if err != nil {
 			return err
 		}
+		fmt.Println("witnessArrsy", witnessArray)
+		fmt.Println("witnessArray hex:", hex.EncodeToString(witnessArray))
 
-		muSig2Tweaks := musig2demo.MuSig2Tweaks{
-			TaprootBIP0086Tweak: false,
-			// TaprootTweak:        testTweak[:],
-			// GenericTweaks: []musig2.KeyTweakDesc{},
-		}
-		allSignerPubKeys := []*btcec.PublicKey{tool.txCtxDataList[i].privateKey[0].PubKey(), tool.txCtxDataList[i].privateKey[1].PubKey()}
-		// sign msg
-		nonce2chan := make(chan [musig2.PubNonceSize]byte, 10)
-		nonce1chan := make(chan [musig2.PubNonceSize]byte, 10)
-		partialSignature2 := make(chan musig2.PartialSignature)
-		finalSig := make(chan schnorr.Signature, 10)
-		var wg sync.WaitGroup
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			// priv1
-			_, session1, err := musig2demo.MuSig2CreateContext(tool.txCtxDataList[i].privateKey[0], allSignerPubKeys, &muSig2Tweaks)
-			if err != nil {
-				log.Fatal(err)
-			}
-			nonce1 := session1.PublicNonce()
-
-			nonce1chan <- nonce1
-
-			nonce2 := <-nonce2chan
-			_, err = session1.RegisterPubNonce(nonce2)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			_, err = musig2demo.MuSig2Sign(session1, [32]byte(witnessArray), false)
-			if err != nil {
-				log.Fatal(err)
-			}
-			partial2 := <-partialSignature2
-
-			_, err = musig2demo.MuSig2CombineSig(session1, &partial2)
-			if err != nil {
-				log.Fatal(err)
-			}
-			finalSig <- *musig2demo.MuSig2FinalSig(session1)
-		}()
-
-		go func() {
-			// priv2
-			_, session2, err := musig2demo.MuSig2CreateContext(tool.txCtxDataList[i].privateKey[1], allSignerPubKeys, &muSig2Tweaks)
-			if err != nil {
-				log.Fatal(err)
-			}
-			nonce2 := session2.PublicNonce()
-
-			nonce2chan <- nonce2
-
-			nonce1 := <-nonce1chan
-			_, err = session2.RegisterPubNonce(nonce1)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			partial2, err := musig2demo.MuSig2Sign(session2, [32]byte(witnessArray), false)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			partialSignature2 <- *partial2
-			wg.Done()
-		}()
-		wg.Wait()
-
-		signature := <-finalSig
+		// return fmt.Errorf("自定义错误")
 
 		// signature, _, _ := musig2.TwoPrivSign2(tool.txCtxDataList[i].privateKey[0], tool.txCtxDataList[i].privateKey[1], [32]byte(witnessArray))
 
@@ -496,7 +451,13 @@ func (tool *InscriptionTool) completeRevealTx() error {
 		// if err != nil {
 		// 	return err
 		// }
-		witnessList[i] = wire.TxWitness{signature.Serialize(), tool.txCtxDataList[i].inscriptionScript, tool.txCtxDataList[i].controlBlockWitness}
+		sign := "9817f78ff34ca6c16db68b98b7542f40efeb9948a93f9e36221ee8d315248fabde2da81b5f827352f5cd074a07dc5aa22ac20537342cc78886c3f482bead7051"
+		signature, err := hex.DecodeString(sign)
+		if err != nil {
+			return err
+		}
+		fmt.Println("signature len:", len(signature))
+		witnessList[i] = wire.TxWitness{signature, tool.txCtxDataList[i].inscriptionScript, tool.txCtxDataList[i].controlBlockWitness}
 	}
 	for i := range witnessList {
 		if len(tool.revealTx) == 1 {
