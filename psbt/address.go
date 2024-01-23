@@ -3,7 +3,6 @@ package psbt
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/base58"
@@ -42,21 +41,6 @@ func GenerateMultiAddress(redeemScript []byte, net *chaincfg.Params) (string, er
 }
 
 func GenerateMultiTaprootAddress(pubKeys []string, minSignNum int, net *chaincfg.Params) (string, []byte, error) {
-	// 设置多签公钥
-	// publicKeysHex := []string{
-	// 	"035f9a9c84d8b9d9b187c266e2d6e000cc2abf6f20faea7d0b0a9a4e2b9d4d9a7f",
-	// 	"03e0c9e9b5b6e9e6c4e8a8b5e9b5e9b5e9b5e9b5e9b5e9b5e9b5e9b5e9b5e9b5e",
-	// 	"02e8e1e6e5e5e9e7e7e9e5e5e5e5e5e9e9e9e5e5e5e5e5e5e5e5e5e5e5e5e5e5e",
-	// }
-	// for _, publicKey := range publicKeys {
-	// 	pubKeyBytes, err := hex.DecodeString(publicKey)
-	// 	if err != nil {
-	// 		fmt.Println("无效的公钥：", err)
-	// 		return
-	// 	}
-	// 	builder.AddData(pubKeyBytes)
-	// }
-
 	var allPubKeys []*btcutil.AddressPubKey
 	for _, v := range pubKeys {
 		pubKey, err := hex.DecodeString(v)
@@ -71,23 +55,12 @@ func GenerateMultiTaprootAddress(pubKeys []string, minSignNum int, net *chaincfg
 	}
 
 	builder := txscript.NewScriptBuilder()
-	builder.AddOp(txscript.OP_2)
+	builder.AddInt64(int64(minSignNum))
 	for _, key := range allPubKeys {
 		builder.AddData(key.ScriptAddress())
 	}
-	builder.AddOp(txscript.OP_3)
+	builder.AddInt64(int64(len(allPubKeys)))
 	builder.AddOp(txscript.OP_CHECKMULTISIG)
-	// script, err := builder.Script()
-	// if err != nil {
-	// 	// Handle the error.
-	// 	return
-	// }
-	// builder := txscript.NewScriptBuilder().AddInt64(int64(minSignNum))
-	// for _, key := range allPubKeys {
-	// 	builder.AddData(key.ScriptAddress())
-	// }
-	// builder.AddInt64(int64(len(allPubKeys)))
-	// builder.AddOp(txscript.OP_CHECKMULTISIG)
 
 	witnessScript, err := builder.Script()
 	if err != nil {
@@ -95,7 +68,6 @@ func GenerateMultiTaprootAddress(pubKeys []string, minSignNum int, net *chaincfg
 	}
 	h256 := sha256.Sum256(witnessScript)
 	witnessProg := h256[:]
-	fmt.Println("len:", len(witnessProg))
 	address, err := btcutil.NewAddressWitnessScriptHash(witnessProg, net)
 	if err != nil {
 		return "", nil, err

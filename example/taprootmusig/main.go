@@ -6,10 +6,8 @@ import (
 	"log"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi/mempool"
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/ord"
@@ -41,32 +39,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// musigPrivKey := musig2demo.TwoBtcTaprootAddress(privKey1, privKey2)
 
 	musigPriv := make([]*btcec.PrivateKey, 0)
 	musigPriv = append(musigPriv, privKey1, privKey2)
 
 	musigAddress, _ := btcutil.DecodeAddress(multiTaprootAddress, netParams)
 
-	// // // // utxoPrivateKeyHex := "440bb3ec56d213e90d006d344d74f6478db4f7fa4cdd388095d8f4edef0c5156"
-	// // // utxoPrivateKeyBytes, err := hex.DecodeString(utxoPrivateKeyHex)
-	// // if err != nil {
-	// // 	log.Fatal(err)
-	// }
-	// utxoPrivateKey, _ := btcec.PrivKeyFromBytes(utxoPrivateKeyBytes)
-
-	// utxoPublicKey := utxoPrivateKey.PubKey()
-
-	utxoTaprootAddress, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(txscript.ComputeTaprootKeyNoScript(utxoPublicKey)), netParams)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// fmt.Println("utxoTaprootAddress:", utxoTaprootAddress.EncodeAddress())
-	fmt.Println("musigAddress no script:", musigAddress.EncodeAddress())
+	fmt.Println("segwit musigAddress no script:", musigAddress.EncodeAddress())
 
 	unspentList, err := btcApiClient.ListUnspent(musigAddress)
-
 	if err != nil {
 		log.Fatalf("list unspent err %v", err)
 	}
@@ -78,24 +59,18 @@ func main() {
 	commitTxOutPointList := make([]*wire.OutPoint, 0)
 	commitTxPrivateKeyList := make([]*btcec.PrivateKey, 0)
 	for i := range unspentList {
-
-		if unspentList[i].Outpoint.Hash.String() == "c628f626b7b5c4b8d2d438fd7365400e565f3cde964df665ae80d18c04c163e1" {
-			commitTxOutPointList = append(commitTxOutPointList, unspentList[i].Outpoint)
-			commitTxPrivateKeyList = append(commitTxPrivateKeyList, privKey1)
-			fmt.Println("unspentList:", unspentList[i].Outpoint)
-			fmt.Println("unspentList out:", unspentList[i].Output)
-		}
-
+		commitTxOutPointList = append(commitTxOutPointList, unspentList[i].Outpoint)
+		commitTxPrivateKeyList = append(commitTxPrivateKeyList, privKey1)
+		fmt.Println("unspentList:", unspentList[i].Outpoint)
+		fmt.Println("unspentList out:", unspentList[i].Output)
 	}
-
-	// panic("err")
 
 	dataList := make([]ord.InscriptionData, 0)
 
 	dataList = append(dataList, ord.InscriptionData{
 		ContentType: "text/plain;charset=utf-8",
-		Body:        []byte("Create Without full Node "),
-		Destination: "tb1prggx0jcdqgag2kj9agxa7n6p888ffpzs4flps8ztwctrluz040hq6x9sz8",
+		Body:        []byte(`{"p":"brc-20","op":"transfer","tick":"ston","amt":"8"}`),
+		Destination: "tb1qhnqzre2a9mg045mze6syjc84h9qr9us0rpypf4r8dc8ndxc4l2sslj7u8t",
 	})
 
 	request := ord.InscriptionRequest{
