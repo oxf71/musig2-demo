@@ -521,24 +521,29 @@ func SignatureScript(tx *wire.MsgTx, idx int, subscript []byte, hashType txscrip
 
 	return txscript.NewScriptBuilder().AddData(sig).AddData(pkData).Script()
 }
+
+func getTxOutByOutPoint(client *mempool.MempoolClient, outPoint *wire.OutPoint) (*wire.TxOut, error) {
+	var txOut *wire.TxOut
+
+	tx, err := client.GetRawTransaction(&outPoint.Hash)
+	if err != nil {
+		return nil, err
+	}
+	if int(outPoint.Index) >= len(tx.TxOut) {
+		return nil, errors.New("err out point")
+	}
+	txOut = tx.TxOut[outPoint.Index]
+
+	// tool.commitTxPrevOutputFetcher.AddPrevOut(*outPoint, txOut)
+	return txOut, nil
+}
+
 func sendTransaction() {
-	netParams := &chaincfg.SigNetParams
+	netParams := &chaincfg.TestNet3Params
 	btcApiClient := mempool.NewClient(netParams)
 
-	// privateKeyHex02 := "4ef5cb1fd5afd08ca9acbe5d077d89f1e095f67616a326d368851e57a92d1bab"
-	// privateKeyByte02, _ := hex.DecodeString(privateKeyHex02)
-	// privateKeyBytes02 := privateKeyByte02 // 用你自己的私钥替换这里的字节
-	// privateKey02, publicKey02 := btcec.PrivKeyFromBytes(privateKeyBytes02)
-	// // 根据公钥生成比特币地址
-	// addressPubKeyHash01 := btcutil.Hash160(publicKey02.SerializeCompressed())
-	// address02, err := btcutil.NewAddressPubKeyHash(addressPubKeyHash01, &chaincfg.TestNet3Params)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// fmt.Println("address: ", address02)
-
 	// 找零地址
-	changeAddress, err := btcutil.DecodeAddress("tb1prggx0jcdqgag2kj9agxa7n6p888ffpzs4flps8ztwctrluz040hq6x9sz8", netParams)
+	changeAddress, err := btcutil.DecodeAddress("tb1pegcl5gc8d9smtux47ezk7fa85jk3tu48e0920d3pqrffq8jfc3gs2l0fgy", netParams)
 	if err != nil {
 		fmt.Println("DecodeAddress err:", err)
 		return
@@ -548,32 +553,10 @@ func sendTransaction() {
 	privKey2, _ := btcec.PrivKeyFromBytes(decodeHex(bip340TestVectors[1].secretKey))
 
 	musig2BtcTaprootAddress := musig2demo.TwoBtcTaprootAddress(privKey1, privKey2)
-	// fmt.Println("taprootAddress: ", taprootAddress)
-	// addressPubKeyHash01 := btcutil.Hash160(musig2BtcAddress.SerializeCompressed())
-	// address02, err := btcutil.NewAddressPubKeyHash(addressPubKeyHash01, &chaincfg.TestNet3Params)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-
-	// mulsigAddr, err := btcutil.DecodeAddress(musig2BtcAddress, &chaincfg.TestNet3Params)
-	// if err != nil {
-	// 	fmt.Println("DecodeAddress err:", err)
-	// 	return
-	// }
-
-	// fmt.Println("taprootAddress: ", taprootAddress)
-	addressPubKey1 := btcutil.Hash160(privKey1.PubKey().SerializeCompressed())
-	address01, err := btcutil.NewAddressPubKeyHash(addressPubKey1, netParams)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// mulsigAddr := musig2BtcTaprootAddress
 
 	fmt.Println("mulsigAddr:", musig2BtcTaprootAddress)
-	fmt.Println("address 1", address01)
 
-	musig2Address, err := btcutil.DecodeAddress("tb1prggx0jcdqgag2kj9agxa7n6p888ffpzs4flps8ztwctrluz040hq6x9sz8", netParams)
+	musig2Address, err := btcutil.DecodeAddress(musig2BtcTaprootAddress, netParams)
 	if err != nil {
 		fmt.Println("DecodeAddress err:", err)
 		return
@@ -587,7 +570,6 @@ func sendTransaction() {
 	if len(unspentList) == 0 {
 		return
 	}
-	fmt.Println("000000:", len(unspentList))
 
 	// 创建比特币交易输入和输出
 	totalSenderAmount := btcutil.Amount(0)
@@ -599,7 +581,7 @@ func sendTransaction() {
 	}
 
 	// 获取目标地址的比特币脚本
-	destAddress, err := btcutil.DecodeAddress("tb1prggx0jcdqgag2kj9agxa7n6p888ffpzs4flps8ztwctrluz040hq6x9sz8", netParams)
+	destAddress, err := btcutil.DecodeAddress("tb1qkm3z5xnu0hdmgsd4snnckth85q98a9900wy5fz", netParams)
 	if err != nil {
 		fmt.Println("DecodeAddress err:", err)
 		return
@@ -633,25 +615,24 @@ func sendTransaction() {
 
 	// 构建多签赎回脚本
 	for i, v := range tx.TxIn {
-		// sigScriptB, err := SignatureScript(tx, i, changeScript, txscript.SigHashDefault, privKey1, privKey2, true)
-		// if err != nil {
-		// 	fmt.Println("SignatureScript:", err)
-		// 	return
-		// }
-
-		// fmt.Println("sigScriptB:", sigScriptB)
-
-		txOut := txscript.NewMultiPrevOutFetcher(nil).FetchPrevOutput(v.PreviousOutPoint)
-		witness, err := ord.TaprootWitnessSignature(
+		txOut, err := getTxOutByOutPoint(btcApiClient, &v.PreviousOutPoint)
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		fmt.Println(txOut.PkScript)
+		prevOutputfetch := txscript.NewMultiPrevOutFetcher(nil)
+		prevOutputfetch.AddPrevOut(v.PreviousOutPoint, txOut)
+		witness, err := ord.TaprootWitnessSignatureMulti(
 			tx,
-			txscript.NewTxSigHashes(tx, txscript.NewMultiPrevOutFetcher(nil)),
+			txscript.NewTxSigHashes(tx, prevOutputfetch),
 			i,
 			txOut.Value,
 			txOut.PkScript,
 			txscript.SigHashDefault,
 			privKey1,
+			privKey2,
 			nil,
-			// tool.txCtxDataList[0].controlBlockWitness,
 		)
 		if err != nil {
 			log.Fatal(err)
@@ -684,7 +665,9 @@ func sendTransaction() {
 
 func main() {
 
-	// sendTransaction()
+	sendTransaction()
+
+	log.Fatal()
 
 	privKey1, _ := btcec.PrivKeyFromBytes(decodeHex(bip340TestVectors[0].secretKey))
 	privKey2, _ := btcec.PrivKeyFromBytes(decodeHex(bip340TestVectors[1].secretKey))

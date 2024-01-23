@@ -12,7 +12,6 @@ import (
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -155,10 +154,10 @@ func createInscriptionTxCtxData(net *chaincfg.Params,
 	data InscriptionData,
 	musigPriv []*btcec.PrivateKey,
 ) (*inscriptionTxCtxData, error) {
-	// privateKey, err := btcec.NewPrivateKey()
-	// if err != nil {
-	// 	return nil, err
-	// }
+	privateKey, err := btcec.NewPrivateKey()
+	if err != nil {
+		return nil, err
+	}
 	//
 	// public key: be6d1a2deb51ffbf1de2ab91f18f0f58a8fc363c9b9b46808fed2b14fadc4a05
 	// muSig2Tweaks := musig2demo.MuSig2Tweaks{
@@ -219,13 +218,14 @@ func createInscriptionTxCtxData(net *chaincfg.Params,
 	// 	return nil, err
 	// }
 	// 0x02
-	compress, err := hex.DecodeString("02")
+	compress, err := hex.DecodeString("03")
 	if err != nil {
 		return nil, err
 	}
 	publicKeyTest := []byte{}
 	publicKeyTest = append(publicKeyTest, compress...)
 	publicKeyTest = append(publicKeyTest, publicKey...)
+	fmt.Println("public test :", publicKeyTest)
 	pk, err := btcec.ParsePubKey(publicKeyTest)
 	if err != nil {
 		fmt.Println("parse pubkey err:", err)
@@ -240,7 +240,10 @@ func createInscriptionTxCtxData(net *chaincfg.Params,
 	}
 
 	tapHash := proof.RootNode.TapHash()
-	commitTxAddress, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(txscript.ComputeTaprootOutputKey(pk, tapHash[:])), net)
+	taprootOutPutKey := ComputeTaprootOutputKey(pk, tapHash[:])
+	fmt.Println("taprootOutPutKey:", taprootOutPutKey.SerializeCompressed())
+	witnessProg := taprootOutPutKey.SerializeCompressed()[1:]
+	commitTxAddress, err := btcutil.NewAddressTaproot(witnessProg, net)
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +454,7 @@ func (tool *InscriptionTool) completeRevealTx() error {
 		// if err != nil {
 		// 	return err
 		// }
-		sign := "9817f78ff34ca6c16db68b98b7542f40efeb9948a93f9e36221ee8d315248fabde2da81b5f827352f5cd074a07dc5aa22ac20537342cc78886c3f482bead7051"
+		sign := "dcc37732913bcdfa527d4d2e1ad2112833534fd60ab6160b29d6f490a363f2e142bc6db3428e4758a3400a9d17c8cfc443826c4fc1677419be8959b518247f4c"
 		signature, err := hex.DecodeString(sign)
 		if err != nil {
 			return err
@@ -501,73 +504,50 @@ func (tool *InscriptionTool) signCommitTx() error {
 			// 	txscript.SigHashAll,
 			// 	tool.MultiPriv[0],
 			// )
-			sig, err := TaprootWitnessSignatureTest(
-				tool.commitTx,
-				txscript.NewTxSigHashes(tool.commitTx, tool.commitTxPrevOutputFetcher),
-				i,
-				txOut.Value,
-				txOut.PkScript,
-				txscript.SigHashAll,
-				tool.MultiPriv[0],
-			)
-			if err != nil {
-				return err
-			}
-			rBytes := sig.Serialize()[:32]
-			sBytes := sig.Serialize()[32:64]
-
-			fmt.Println("sig len", len(sig.Serialize()))
-			fmt.Println("sig rbytes:", hex.EncodeToString(rBytes))
-			fmt.Println("sig sbytes:", hex.EncodeToString(sBytes))
-
-			newsig := []byte{}
-			newsig2 := []byte{}
-
-			derprefix, _ := hex.DecodeString("30440220")
-
-			newsig = append(newsig, derprefix...)
-			newsig = append(newsig, rBytes...)
-			sLen, _ := hex.DecodeString("0220")
-			derversion, _ := hex.DecodeString("01")
-			newsig = append(newsig, sLen...)
-			newsig = append(newsig, sBytes...)
-			newsig = append(newsig, derversion...)
-
-			// 创建一个包含公钥和签名的结构
-			// schnorrSignature := struct {
-			// 	PubKey    *btcec.PublicKey
-			// 	Signature []byte
-			// }{
-			// 	PubKey:    tool.MultiPriv[0].PubKey(),
-			// 	Signature: sig.Serialize(),
-			// }
-			// ecdsa.ParseDERSignature()
-			// 对签名进行DER编码
-			// derSignature, err := asn1.Marshal(sig)
+			// sig, err := TaprootWitnessSignatureTest(
+			// 	tool.commitTx,
+			// 	txscript.NewTxSigHashes(tool.commitTx, tool.commitTxPrevOutputFetcher),
+			// 	i,
+			// 	txOut.Value,
+			// 	txOut.PkScript,
+			// 	txscript.SigHashAll,
+			// 	tool.MultiPriv[0],
+			// )
 			// if err != nil {
-			// 	fmt.Println("Failed to encode signature:", err)
 			// 	return err
 			// }
-			// esig2, err := txscript.RawTxInSignature(
+			// rBytes := sig.Serialize()[:32]
+			// sBytes := sig.Serialize()[32:64]
+
+			// fmt.Println("sig len", len(sig.Serialize()))
+			// fmt.Println("sig rbytes:", hex.EncodeToString(rBytes))
+			// fmt.Println("sig sbytes:", hex.EncodeToString(sBytes))
+
+			// newsig := []byte{}
+			// newsig2 := []byte{}
+
+			// derprefix, _ := hex.DecodeString("30440220")
+
+			// newsig = append(newsig, derprefix...)
+			// newsig = append(newsig, rBytes...)
+			// sLen, _ := hex.DecodeString("0220")
+			// derversion, _ := hex.DecodeString("01")
+			// newsig = append(newsig, sLen...)
+			// newsig = append(newsig, sBytes...)
+			// newsig = append(newsig, derversion...)
+
+			// sig2, err := TaprootWitnessSignatureTest(
 			// 	tool.commitTx,
+			// 	txscript.NewTxSigHashes(tool.commitTx, tool.commitTxPrevOutputFetcher),
 			// 	i,
+			// 	txOut.Value,
 			// 	txOut.PkScript,
 			// 	txscript.SigHashAll,
 			// 	tool.MultiPriv[1],
 			// )
-
-			sig2, err := TaprootWitnessSignatureTest(
-				tool.commitTx,
-				txscript.NewTxSigHashes(tool.commitTx, tool.commitTxPrevOutputFetcher),
-				i,
-				txOut.Value,
-				txOut.PkScript,
-				txscript.SigHashAll,
-				tool.MultiPriv[1],
-			)
-			if err != nil {
-				return err
-			}
+			// if err != nil {
+			// 	return err
+			// }
 
 			witnessSig1, err := WitnessSignature(
 				tool.commitTx,
@@ -595,17 +575,6 @@ func (tool *InscriptionTool) signCommitTx() error {
 				return err
 			}
 
-			rBytes2 := sig2.Serialize()[:32]
-			sBytes2 := sig2.Serialize()[32:64]
-
-			newsig2 = append(newsig2, derprefix...)
-			newsig2 = append(newsig2, rBytes2...)
-			newsig2 = append(newsig2, sLen...)
-			newsig2 = append(newsig2, sBytes2...)
-			newsig2 = append(newsig2, derversion...)
-
-			fmt.Println("sig:", hex.EncodeToString(newsig))
-			fmt.Println("sig2:", hex.EncodeToString(newsig2))
 			fmt.Println("multi script:", hex.EncodeToString(tool.MultiScript))
 			// txscript.WitnessStack
 			// for k, v := range witnessSig1 {

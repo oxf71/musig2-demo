@@ -6,8 +6,10 @@ import (
 	"log"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/btcapi/mempool"
 	"github.com/oxf71/musig2-demo/lib/go-ord-tx/pkg/ord"
@@ -55,7 +57,7 @@ func main() {
 
 	// utxoPublicKey := utxoPrivateKey.PubKey()
 
-	// utxoTaprootAddress, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(txscript.ComputeTaprootKeyNoScript(utxoPublicKey)), netParams)
+	utxoTaprootAddress, err := btcutil.NewAddressTaproot(schnorr.SerializePubKey(txscript.ComputeTaprootKeyNoScript(utxoPublicKey)), netParams)
 	// if err != nil {
 	// 	log.Fatal(err)
 	// }
@@ -77,7 +79,7 @@ func main() {
 	commitTxPrivateKeyList := make([]*btcec.PrivateKey, 0)
 	for i := range unspentList {
 
-		if unspentList[i].Outpoint.Hash.String() == "0b758e6a33bc0589cd8425f9f87e9d564a4062a70bf291a9ee49de0c009cae57" {
+		if unspentList[i].Outpoint.Hash.String() == "c628f626b7b5c4b8d2d438fd7365400e565f3cde964df665ae80d18c04c163e1" {
 			commitTxOutPointList = append(commitTxOutPointList, unspentList[i].Outpoint)
 			commitTxPrivateKeyList = append(commitTxPrivateKeyList, privKey1)
 			fmt.Println("unspentList:", unspentList[i].Outpoint)
